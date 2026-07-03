@@ -21,8 +21,8 @@ const COLLECTIONS = [
   { name: 'Trendy Kurtis', img: 'https://images.unsplash.com/photo-1608963503735-ee1b5852ea6e?w=500&q=80', href: '#kurtis' },
   { name: 'Feeding Dresses', img: 'https://images.unsplash.com/photo-1558769132-cb1aea458c5e?w=500&q=80', href: '#feeding' },
   { name: 'Cotton Collection', img: 'https://images.unsplash.com/photo-1621184455862-c163dfb30e0f?w=500&q=80', href: '#cotton' },
-  { name: 'Kids Collections', img: `${API_BASE_URL}/uploads/kids_frock.png`, href: '#kids' },
-  { name: 'Jewellery', img: `${API_BASE_URL}/uploads/gold_choker.png`, href: '#jewels' },
+  { name: 'Kids Collections', img: `https://nkclvcdbdaxwtuwhvgnf.supabase.co/storage/v1/object/public/savis-images/kids_frock.png`, href: '#kids' },
+  { name: 'Jewellery', img: `https://nkclvcdbdaxwtuwhvgnf.supabase.co/storage/v1/object/public/savis-images/gold_choker.png`, href: '#jewels' },
   { name: 'Home Essentials', img: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500&q=80', href: '#collections' }
 ];
 
