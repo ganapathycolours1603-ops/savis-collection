@@ -643,6 +643,9 @@ function App() {
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [isSearchFocused, setIsSearchFocused] = useState(false);
 
+  // Pagination / Lazy rendering state
+  const [visibleCount, setVisibleCount] = useState(24);
+
   // Search indexing reference
   const searchIndexRef = useRef([]);
 
@@ -691,6 +694,11 @@ function App() {
       clearTimeout(handler);
     };
   }, [searchQuery]);
+
+  // Reset pagination on filter or search query change to keep page responsive
+  useEffect(() => {
+    setVisibleCount(24);
+  }, [selectedCategoryFilter, debouncedSearchQuery]);
   
   // Toast notifications state
   const [toastMessage, setToastMessage] = useState('');
@@ -2517,26 +2525,44 @@ function App() {
                       </button>
                     </div>
                   ) : (
-                    <div className="products-grid-catalog" style={{
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
-                      gap: '30px 20px',
-                      padding: '10px 0'
-                    }}>
-                      {getFilteredAndSortedProducts().map((p, idx, arr) => (
-                        <ProductCard 
-                          key={p.id} 
-                          product={p} 
-                          hoverImage={getHoverImage(p, idx, arr)} 
-                          onOpen={() => setSelectedProduct(p)} 
-                          onAddCart={() => addToCart(p, p.sizes?.[0] || 'M', p.colors?.[0] || 'Default')} 
-                          onWishlist={() => toggleWishlist(p.id)}
-                          isWishlisted={wishlist.includes(p.id)}
- 
-                          onBuyNow={() => startBuyNow(p, p.sizes?.[0] || 'M', p.colors?.[0] || 'Default')}
-                        />
-                      ))}
-                    </div>
+                    <>
+                      <div className="products-grid-catalog" style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+                        gap: '30px 20px',
+                        padding: '10px 0'
+                      }}>
+                        {getFilteredAndSortedProducts().slice(0, visibleCount).map((p, idx, arr) => (
+                          <ProductCard 
+                            key={p.id} 
+                            product={p} 
+                            hoverImage={getHoverImage(p, idx, arr)} 
+                            onOpen={() => setSelectedProduct(p)} 
+                            onAddCart={() => addToCart(p, p.sizes?.[0] || 'M', p.colors?.[0] || 'Default')} 
+                            onWishlist={() => toggleWishlist(p.id)}
+                            isWishlisted={wishlist.includes(p.id)}
+   
+                            onBuyNow={() => startBuyNow(p, p.sizes?.[0] || 'M', p.colors?.[0] || 'Default')}
+                          />
+                        ))}
+                      </div>
+                      {visibleCount < getFilteredAndSortedProducts().length && (
+                        <div style={{ display: 'flex', justifyContent: 'center', margin: '40px 0 20px 0' }}>
+                          <button 
+                            className="btn-premium btn-premium-secondary" 
+                            onClick={() => setVisibleCount(prev => prev + 24)}
+                            style={{ 
+                              padding: '12px 36px', 
+                              fontSize: '14px', 
+                              fontWeight: '600',
+                              letterSpacing: '.5px'
+                            }}
+                          >
+                            Load More Products ({getFilteredAndSortedProducts().length - visibleCount} remaining)
+                          </button>
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               </section>
