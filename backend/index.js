@@ -186,57 +186,81 @@ app.get('/api/users', requireAdminAuth, async (req, res) => {
   }
 });
 
+// --- FIXED UPLOAD ROUTE ---
+// Priority: Cloudinary -> Google Drive -> Local disk (last resort, non-persistent on Railway)
+// Local fallback now returns an ABSOLUTE url (backend domain), not a relative path,
+// so images resolve correctly even when frontend is hosted on a different domain.
 app.post('/api/upload', requireAdminAuth, async (req, res) => {
   try {
     const { imageBase64 } = req.body;
     if (!imageBase64) {
       return res.status(400).json({ error: 'No image data provided' });
     }
-    
+
     // Try Cloudinary Cloud Upload
     try {
       const cloudinaryUrl = await uploadImageToCloudinary(imageBase64);
       if (cloudinaryUrl) {
+        console.log("[UPLOAD] ✅ Uploaded via Cloudinary:", cloudinaryUrl);
         return res.json({ success: true, imagePath: cloudinaryUrl });
       }
     } catch (cloudinaryErr) {
       console.warn("[UPLOAD] Cloudinary upload failed, trying Google Drive...", cloudinaryErr.message);
     }
-    
+
     // Try Google Drive Cloud Upload
     try {
       const filename = `apparel_${Date.now()}`;
       const driveUrl = await uploadImageToDrive(filename, imageBase64);
       if (driveUrl) {
+        console.log("[UPLOAD] ✅ Uploaded via Google Drive:", driveUrl);
         return res.json({ success: true, imagePath: driveUrl });
       }
     } catch (driveErr) {
       console.warn("[UPLOAD] Google Drive upload failed, falling back to local storage...", driveErr.message);
     }
-    
+
     // Fallback: Local Server Storage
+    // WARNING: On Railway (and most PaaS), the filesystem is EPHEMERAL.
+    // Anything saved here is WIPED on every redeploy/restart/scale event.
+    // This path should only ever be hit if Cloudinary + Drive are both
+    // misconfigured — fix those env vars instead of relying on this.
     const matches = imageBase64.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
     let base64Data = imageBase64;
     let extension = '.png';
-    
+
     if (matches && matches.length === 3) {
       extension = '.' + matches[1].split('/')[1];
       if (extension === '.jpeg') extension = '.jpg';
       base64Data = matches[2];
     }
-    
+
     const buffer = Buffer.from(base64Data, 'base64');
     const filename = `uploaded_${Date.now()}${extension}`;
-    const uploadPath = path.join(__dirname, 'public', 'uploads', filename);
-    
     const uploadsDir = path.join(__dirname, 'public', 'uploads');
+    const uploadPath = path.join(uploadsDir, filename);
+
     if (!fs.existsSync(uploadsDir)) {
       fs.mkdirSync(uploadsDir, { recursive: true });
     }
-    
+
     fs.writeFileSync(uploadPath, buffer);
-    res.json({ success: true, imagePath: `/uploads/${filename}` });
+
+    // Build an ABSOLUTE URL (backend domain), not a relative "/uploads/xxx.jpg" path.
+    // Relative paths break when the frontend is on a different domain (Vercel/Netlify)
+    // than the backend (Railway) — the browser resolves them against the frontend origin.
+    const backendUrl = process.env.BACKEND_URL || `${req.protocol}://${req.get('host')}`;
+    const absoluteImagePath = `${backendUrl}/uploads/${filename}`;
+
+    console.warn(
+      `[UPLOAD] ⚠️ Cloudinary & Google Drive both failed/unconfigured. ` +
+      `Saved to LOCAL DISK (${absoluteImagePath}) — this file will be LOST on the next Railway redeploy. ` +
+      `Fix your CLOUDINARY_* / GOOGLE_DRIVE_* env vars ASAP.`
+    );
+
+    res.json({ success: true, imagePath: absoluteImagePath });
   } catch (error) {
+    console.error("[UPLOAD] Fatal upload error:", error);
     res.status(500).json({ error: error.message });
   }
 });
