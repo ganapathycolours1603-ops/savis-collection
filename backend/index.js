@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -187,8 +188,39 @@ app.get('/api/users', requireAdminAuth, async (req, res) => {
   }
 });
 
+// --- Supabase Storage upload helper ---
+async function uploadToSupabaseStorage(filename, buffer, mimeType) {
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const supabaseKey = process.env.SUPABASE_KEY;
+  if (!supabaseUrl || !supabaseKey) {
+    return null;
+  }
+  const url = `${supabaseUrl}/storage/v1/object/savis-images/${filename}`;
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${supabaseKey}`,
+        'Content-Type': mimeType,
+        'x-upsert': 'true'
+      },
+      body: buffer
+    });
+    if (response.ok) {
+      return `${supabaseUrl}/storage/v1/object/public/savis-images/${filename}`;
+    } else {
+      const errText = await response.text();
+      console.error(`[SUPABASE UPLOAD] Failed to upload ${filename}:`, errText);
+      return null;
+    }
+  } catch (err) {
+    console.error(`[SUPABASE UPLOAD] Connection error:`, err.message);
+    return null;
+  }
+}
+
 // --- FIXED UPLOAD ROUTE ---
-// Priority: Cloudinary -> Google Drive -> Local disk (last resort, non-persistent on Railway)
+// Priority: Supabase -> Firebase -> Cloudinary -> Google Drive -> Local disk
 // Local fallback now returns an ABSOLUTE url (backend domain), not a relative path,
 // so images resolve correctly even when frontend is hosted on a different domain.
 app.post('/api/upload', requireAdminAuth, async (req, res) => {
@@ -213,6 +245,17 @@ app.post('/api/upload', requireAdminAuth, async (req, res) => {
     
     const buffer = Buffer.from(base64Data, 'base64');
     const filename = `apparel_${Date.now()}${extension}`;
+
+    // Try Supabase Storage Upload
+    try {
+      const supabaseURL = await uploadToSupabaseStorage(filename, buffer, mimeType);
+      if (supabaseURL) {
+        console.log("[UPLOAD] ✅ Uploaded via Supabase Storage:", supabaseURL);
+        return res.json({ success: true, imagePath: supabaseURL });
+      }
+    } catch (supabaseErr) {
+      console.warn("[UPLOAD] Supabase Storage upload failed, trying Firebase...", supabaseErr.message);
+    }
 
     // Try Firebase Storage Upload
     try {

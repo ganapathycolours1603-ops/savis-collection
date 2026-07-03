@@ -16,9 +16,10 @@ const PG_CONNECTION_STRING = process.env.SUPABASE_DB_URL || process.env.DATABASE
 
 if (PG_CONNECTION_STRING) {
   console.log("[DATABASE] Connecting to cloud Supabase PostgreSQL...");
+  const useSsl = !PG_CONNECTION_STRING.includes('localhost') && !PG_CONNECTION_STRING.includes('127.0.0.1');
   pool = new Pool({
     connectionString: PG_CONNECTION_STRING,
-    ssl: { rejectUnauthorized: false }
+    ssl: useSsl ? { rejectUnauthorized: false } : false
   });
   
   // Test connection
@@ -58,7 +59,8 @@ async function initPostgresTables() {
         "image" TEXT NOT NULL,
         "category" TEXT NOT NULL,
         "description" TEXT DEFAULT '',
-        "colorImages" JSONB DEFAULT '{}'::jsonb
+        "colorImages" JSONB DEFAULT '{}'::jsonb,
+        "additionalImages" TEXT[] DEFAULT '{}'::text[]
       )
     `);
     
