@@ -8,6 +8,7 @@ import { fileURLToPath } from 'url';
 import { initDb, getProducts, addProduct, deleteProduct, addOrder, getOrders, updateOrderStatus, updateOrderPaymentStatus, deleteOrder, getUsers, addUser, getInquiries, addInquiry, deleteInquiry, updateProductStock, resetDatabase, getReviews, addReview, getCartActivity, addCartActivity, getHomepageSections, saveHomepageSections } from './db.js';
 import { uploadImageToDrive } from './drive.js';
 import { uploadImageToCloudinary, uploadLocalFileToCloudinary } from './cloudinary.js';
+import { uploadToFirebaseStorage } from './firebase.js';
 import { initBot, notifyNewOrder } from './bot.js';
 
 dotenv.config();
@@ -197,6 +198,33 @@ app.post('/api/upload', requireAdminAuth, async (req, res) => {
       return res.status(400).json({ error: 'No image data provided' });
     }
 
+    // Parse Base64 to Buffer
+    const matches = imageBase64.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+    let base64Data = imageBase64;
+    let extension = '.png';
+    let mimeType = 'image/png';
+    
+    if (matches && matches.length === 3) {
+      mimeType = matches[1];
+      extension = '.' + mimeType.split('/')[1];
+      if (extension === '.jpeg') extension = '.jpg';
+      base64Data = matches[2];
+    }
+    
+    const buffer = Buffer.from(base64Data, 'base64');
+    const filename = `apparel_${Date.now()}${extension}`;
+
+    // Try Firebase Storage Upload
+    try {
+      const firebaseURL = await uploadToFirebaseStorage(filename, buffer, mimeType, 'products');
+      if (firebaseURL) {
+        console.log("[UPLOAD] ✅ Uploaded via Firebase Storage:", firebaseURL);
+        return res.json({ success: true, imagePath: firebaseURL });
+      }
+    } catch (firebaseErr) {
+      console.warn("[UPLOAD] Firebase Storage upload failed, trying Cloudinary...", firebaseErr.message);
+    }
+    
     // Try Cloudinary Cloud Upload
     try {
       const cloudinaryUrl = await uploadImageToCloudinary(imageBase64);
@@ -207,10 +235,9 @@ app.post('/api/upload', requireAdminAuth, async (req, res) => {
     } catch (cloudinaryErr) {
       console.warn("[UPLOAD] Cloudinary upload failed, trying Google Drive...", cloudinaryErr.message);
     }
-
+    
     // Try Google Drive Cloud Upload
     try {
-      const filename = `apparel_${Date.now()}`;
       const driveUrl = await uploadImageToDrive(filename, imageBase64);
       if (driveUrl) {
         console.log("[UPLOAD] ✅ Uploaded via Google Drive:", driveUrl);
@@ -219,45 +246,29 @@ app.post('/api/upload', requireAdminAuth, async (req, res) => {
     } catch (driveErr) {
       console.warn("[UPLOAD] Google Drive upload failed, falling back to local storage...", driveErr.message);
     }
-
+    
     // Fallback: Local Server Storage
-    // WARNING: On Railway (and most PaaS), the filesystem is EPHEMERAL.
-    // Anything saved here is WIPED on every redeploy/restart/scale event.
-    // This path should only ever be hit if Cloudinary + Drive are both
-    // misconfigured — fix those env vars instead of relying on this.
-    const matches = imageBase64.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
-    let base64Data = imageBase64;
-    let extension = '.png';
-
-    if (matches && matches.length === 3) {
-      extension = '.' + matches[1].split('/')[1];
-      if (extension === '.jpeg') extension = '.jpg';
-      base64Data = matches[2];
-    }
-
-    const buffer = Buffer.from(base64Data, 'base64');
-    const filename = `uploaded_${Date.now()}${extension}`;
     const uploadsDir = path.join(__dirname, 'public', 'uploads');
     const uploadPath = path.join(uploadsDir, filename);
-
+    
     if (!fs.existsSync(uploadsDir)) {
       fs.mkdirSync(uploadsDir, { recursive: true });
     }
-
+    
     fs.writeFileSync(uploadPath, buffer);
-
+    
     // Build an ABSOLUTE URL (backend domain), not a relative "/uploads/xxx.jpg" path.
     // Relative paths break when the frontend is on a different domain (Vercel/Netlify)
     // than the backend (Railway) — the browser resolves them against the frontend origin.
     const backendUrl = process.env.BACKEND_URL || `${req.protocol}://${req.get('host')}`;
     const absoluteImagePath = `${backendUrl}/uploads/${filename}`;
-
+    
     console.warn(
-      `[UPLOAD] ⚠️ Cloudinary & Google Drive both failed/unconfigured. ` +
+      `[UPLOAD] ⚠️ Cloudinary, Google Drive & Firebase Storage all failed/unconfigured. ` +
       `Saved to LOCAL DISK (${absoluteImagePath}) — this file will be LOST on the next Railway redeploy. ` +
       `Fix your CLOUDINARY_* / GOOGLE_DRIVE_* env vars ASAP.`
     );
-
+    
     res.json({ success: true, imagePath: absoluteImagePath });
   } catch (error) {
     console.error("[UPLOAD] Fatal upload error:", error);

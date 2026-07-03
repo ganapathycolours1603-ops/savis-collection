@@ -5,6 +5,7 @@ import https from 'https';
 import { fileURLToPath } from 'url';
 import { addProduct, getProducts, deleteProduct, getOrders, getAuthorizedUsers, authorizeUser } from './db.js';
 import { uploadLocalFileToCloudinary } from './cloudinary.js';
+import { uploadToFirebaseStorage } from './firebase.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -137,16 +138,36 @@ export function initBot() {
         await downloadFile(fileLink, uploadPath);
         
         try {
-          const cloudinaryUrl = await uploadLocalFileToCloudinary(uploadPath);
-          if (cloudinaryUrl) {
-            session.image = cloudinaryUrl;
-            try { fs.unlinkSync(uploadPath); } catch (e) {} // Clean up local file after cloud upload
+          const fileBuffer = fs.readFileSync(uploadPath);
+          const mimeType = ext === '.png' ? 'image/png' : (ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'application/octet-stream');
+          const firebaseURL = await uploadToFirebaseStorage(filename, fileBuffer, mimeType, 'products');
+          if (firebaseURL) {
+            session.image = firebaseURL;
+            try { fs.unlinkSync(uploadPath); } catch (e) {} // Clean up local file after Firebase upload
           } else {
+            // Try Cloudinary as fallback
+            const cloudinaryUrl = await uploadLocalFileToCloudinary(uploadPath);
+            if (cloudinaryUrl) {
+              session.image = cloudinaryUrl;
+              try { fs.unlinkSync(uploadPath); } catch (e) {}
+            } else {
+              session.image = `/uploads/${filename}`;
+            }
+          }
+        } catch (firebaseErr) {
+          console.warn("[BOT] Firebase upload failed, trying Cloudinary...", firebaseErr.message);
+          try {
+            const cloudinaryUrl = await uploadLocalFileToCloudinary(uploadPath);
+            if (cloudinaryUrl) {
+              session.image = cloudinaryUrl;
+              try { fs.unlinkSync(uploadPath); } catch (e) {}
+            } else {
+              session.image = `/uploads/${filename}`;
+            }
+          } catch (cloudErr) {
+            console.warn("[BOT] Cloudinary upload failed, using local path:", cloudErr.message);
             session.image = `/uploads/${filename}`;
           }
-        } catch (cloudErr) {
-          console.warn("[BOT] Cloudinary upload failed, using local path:", cloudErr.message);
-          session.image = `/uploads/${filename}`;
         }
         
         session.step = 2;

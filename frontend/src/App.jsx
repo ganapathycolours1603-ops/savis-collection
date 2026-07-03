@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import './App.css';
+import { storage, ref, uploadBytesResumable, getDownloadURL } from './firebase';
 
 // Fallback products data matching the SAVI'S collection storefront HTML structure
 const fallbackProducts = [];
@@ -1745,7 +1746,33 @@ function App() {
     }
   };
 
-  // handle image upload from file selector
+  // Helper to upload images to Firebase Storage
+  const uploadToFirebase = (file, folder = 'products') => {
+    return new Promise((resolve, reject) => {
+      const fileName = `${folder}/${Date.now()}_${file.name}`;
+      const fileRef = ref(storage, fileName);
+      const uploadTask = uploadBytesResumable(fileRef, file);
+
+      uploadTask.on(
+        "state_changed",
+        null,
+        (error) => {
+          console.error("Firebase upload error:", error);
+          reject(error);
+        },
+        async () => {
+          try {
+            const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
+            resolve(downloadUrl);
+          } catch (urlErr) {
+            reject(urlErr);
+          }
+        }
+      );
+    });
+  };
+
+  // handle image upload from file selector using Firebase Storage
   const handleProductImageUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -1754,44 +1781,20 @@ function App() {
       return;
     }
     setImageUploading(true);
-    triggerToast("Uploading product image...");
-    const reader = new FileReader();
-    reader.onloadend = async () => {
-      try {
-        const base64Data = reader.result;
-        const res = await fetch(`${API_BASE_URL}/api/upload`, {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${adminToken}`
-          },
-          body: JSON.stringify({ imageBase64: base64Data })
-        });
-        if (res.status === 401) {
-          handleAdminLogout();
-          return;
-        }
-        if (res.ok) {
-          const data = await res.json();
-          const imageUrl = data.imagePath.startsWith('http') ? data.imagePath : `${API_BASE_URL}${data.imagePath}`;
-          setNewProduct(prev => ({ ...prev, image: imageUrl }));
-          triggerToast("Image file uploaded successfully!");
-        } else {
-          const err = await res.json();
-          alert(`Image upload failed: ${err.error || 'Unknown error'}`);
-        }
-      } catch (err) {
-        console.error("Upload failed", err);
-        alert("Upload failed. Using a local file path mock URL.");
-        setNewProduct(prev => ({ ...prev, image: 'https://images.unsplash.com/photo-1521572267360-ee0c2909d518?w=500&auto=format&fit=crop' }));
-      } finally {
-        setImageUploading(false);
-      }
-    };
-    reader.readAsDataURL(file);
+    triggerToast("Uploading product image to Firebase...");
+    try {
+      const downloadUrl = await uploadToFirebase(file);
+      setNewProduct(prev => ({ ...prev, image: downloadUrl }));
+      triggerToast("Image uploaded to Firebase successfully!");
+    } catch (err) {
+      console.error("Upload failed", err);
+      alert("Upload failed: " + err.message);
+    } finally {
+      setImageUploading(false);
+    }
   };
 
-  // handle image upload for a specific color swatch
+  // handle image upload for a specific color swatch using Firebase Storage
   const handleColorImageUpload = async (color, e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -1799,43 +1802,21 @@ function App() {
       alert("Please upload an image smaller than 5MB.");
       return;
     }
-    triggerToast(`Uploading image for ${color}...`);
-    const reader = new FileReader();
-    reader.onloadend = async () => {
-      try {
-        const base64Data = reader.result;
-        const res = await fetch(`${API_BASE_URL}/api/upload`, {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${adminToken}`
-          },
-          body: JSON.stringify({ imageBase64: base64Data })
-        });
-        if (res.status === 401) {
-          handleAdminLogout();
-          return;
+    triggerToast(`Uploading image for ${color} to Firebase...`);
+    try {
+      const downloadUrl = await uploadToFirebase(file, 'swatches');
+      setNewProduct(prev => ({
+        ...prev,
+        colorImages: {
+          ...prev.colorImages,
+          [color]: downloadUrl
         }
-        if (res.ok) {
-          const data = await res.json();
-          const imageUrl = data.imagePath.startsWith('http') ? data.imagePath : `${API_BASE_URL}${data.imagePath}`;
-          setNewProduct(prev => ({
-            ...prev,
-            colorImages: {
-              ...prev.colorImages,
-              [color]: imageUrl
-            }
-          }));
-          triggerToast(`Uploaded image for ${color}!`);
-        } else {
-          const err = await res.json();
-          alert(`Image upload failed: ${err.error || 'Unknown error'}`);
-        }
-      } catch (err) {
-        console.error("Upload failed", err);
-      }
-    };
-    reader.readAsDataURL(file);
+      }));
+      triggerToast(`Uploaded image for ${color}!`);
+    } catch (err) {
+      console.error("Upload failed", err);
+      alert("Upload failed: " + err.message);
+    }
   };
 
   // User auth login submit
