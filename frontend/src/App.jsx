@@ -2842,7 +2842,7 @@ function App() {
                     ))}
                   </div>
                   <div className="products-scroll">
-                    {getByCategory('Cotton').map((p, idx, arr) => (
+                    {getByCategory('Cotton').slice(0, 10).map((p, idx, arr) => (
                       <ProductCard 
                         key={p.id} 
                         product={p} 
@@ -2880,7 +2880,7 @@ function App() {
                     ))}
                   </div>
                   <div className="products-scroll">
-                    {getByCategory('Co-ords').map((p, idx, arr) => (
+                    {getByCategory('Co-ords').slice(0, 10).map((p, idx, arr) => (
                       <ProductCard 
                         key={p.id} 
                         product={p} 
@@ -2918,7 +2918,7 @@ function App() {
                     ))}
                   </div>
                   <div className="products-scroll">
-                    {getByCategory('Kurtis').map((p, idx, arr) => (
+                    {getByCategory('Kurtis').slice(0, 10).map((p, idx, arr) => (
                       <ProductCard 
                         key={p.id} 
                         product={p} 
@@ -2956,7 +2956,7 @@ function App() {
                     ))}
                   </div>
                   <div className="products-scroll">
-                    {getByCategory('Nightgown').map((p, idx, arr) => (
+                    {getByCategory('Nightgown').slice(0, 10).map((p, idx, arr) => (
                       <ProductCard 
                         key={p.id} 
                         product={p} 
@@ -2994,7 +2994,7 @@ function App() {
                     ))}
                   </div>
                   <div className="products-scroll">
-                    {getByCategory('Kids').map((p, idx, arr) => (
+                    {getByCategory('Kids').slice(0, 10).map((p, idx, arr) => (
                       <ProductCard 
                         key={p.id} 
                         product={p} 
@@ -3032,7 +3032,7 @@ function App() {
                     ))}
                   </div>
                   <div className="products-scroll">
-                    {getByCategory('Jewels').map((p, idx, arr) => (
+                    {getByCategory('Jewels').slice(0, 10).map((p, idx, arr) => (
                       <ProductCard 
                         key={p.id} 
                         product={p} 
@@ -3070,7 +3070,7 @@ function App() {
                     ))}
                   </div>
                   <div className="products-scroll">
-                    {getByCategory('Sarees').map((p, idx, arr) => (
+                    {getByCategory('Sarees').slice(0, 10).map((p, idx, arr) => (
                       <ProductCard 
                         key={p.id} 
                         product={p} 
