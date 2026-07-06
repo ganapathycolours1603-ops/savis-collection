@@ -8,21 +8,77 @@ const { Pool } = pg;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// --- SUPABASE CONNECTION ---
+// --- DATABASE CONNECTION CONFIGURATION ---
 const PG_CONNECTION_STRING = process.env.SUPABASE_DB_URL || process.env.DATABASE_URL;
+const jsonFilePath = path.resolve(__dirname, 'database.json');
+
+export let useLocalJson = false;
+let pool = null;
 
 if (!PG_CONNECTION_STRING) {
-  console.error("❌ ERROR: No SUPABASE_DB_URL or DATABASE_URL found in .env. Cannot run backend on Supabase mode!");
-  process.exit(1);
+  console.log("⚠️ No PG database URL found. Falling back to local JSON database mode!");
+  useLocalJson = true;
+} else {
+  console.log("[DATABASE] Database URL found. Creating connection pool...");
+  const useSsl = !PG_CONNECTION_STRING.includes('localhost') && !PG_CONNECTION_STRING.includes('127.0.0.1');
+  pool = new Pool({
+    connectionString: PG_CONNECTION_STRING,
+    ssl: useSsl ? { rejectUnauthorized: false } : false,
+    connectionTimeoutMillis: 5000
+  });
 }
 
-console.log("[DATABASE] Connecting to Supabase PostgreSQL cloud database...");
-const useSsl = !PG_CONNECTION_STRING.includes('localhost') && !PG_CONNECTION_STRING.includes('127.0.0.1');
-const pool = new Pool({
-  connectionString: PG_CONNECTION_STRING,
-  ssl: useSsl ? { rejectUnauthorized: false } : false,
-  connectionTimeoutMillis: 10000
-});
+function ensureJsonFile() {
+  if (!fs.existsSync(jsonFilePath)) {
+    const defaultData = {
+      products: [],
+      orders: [],
+      users: [],
+      inquiries: [],
+      reviews: [],
+      cart_activity: [],
+      homepage_sections: []
+    };
+    fs.writeFileSync(jsonFilePath, JSON.stringify(defaultData, null, 2), 'utf8');
+  } else {
+    try {
+      const content = fs.readFileSync(jsonFilePath, 'utf8');
+      const data = JSON.parse(content);
+      let changed = false;
+      if (!data.products) { data.products = []; changed = true; }
+      if (!data.orders) { data.orders = []; changed = true; }
+      if (!data.users) { data.users = []; changed = true; }
+      if (!data.inquiries) { data.inquiries = []; changed = true; }
+      if (!data.reviews) { data.reviews = []; changed = true; }
+      if (!data.cart_activity) { data.cart_activity = []; changed = true; }
+      if (!data.homepage_sections) { data.homepage_sections = []; changed = true; }
+      if (changed) {
+        fs.writeFileSync(jsonFilePath, JSON.stringify(data, null, 2), 'utf8');
+      }
+    } catch (e) {
+      console.error("Error reading database.json, resetting file:", e.message);
+      const defaultData = {
+        products: [],
+        orders: [],
+        users: [],
+        inquiries: [],
+        reviews: [],
+        cart_activity: [],
+        homepage_sections: []
+      };
+      fs.writeFileSync(jsonFilePath, JSON.stringify(defaultData, null, 2), 'utf8');
+    }
+  }
+}
+
+function readJsonDb() {
+  ensureJsonFile();
+  return JSON.parse(fs.readFileSync(jsonFilePath, 'utf8'));
+}
+
+function writeJsonDb(data) {
+  fs.writeFileSync(jsonFilePath, JSON.stringify(data, null, 2), 'utf8');
+}
 
 // Helper parsers for types
 function parseProduct(row) {
@@ -45,6 +101,12 @@ function parseOrder(row) {
 }
 
 export async function initDb() {
+  if (useLocalJson) {
+    console.log("=== Using Local JSON Database Mode (Supabase not available) ===");
+    ensureJsonFile();
+    return;
+  }
+
   console.log("[DATABASE] Initializing Supabase PostgreSQL tables...");
   try {
     // 1. Products Table
@@ -140,12 +202,18 @@ export async function initDb() {
     
     console.log("=== Supabase PostgreSQL Tables Connected & Verified ===");
   } catch (err) {
-    console.error("Supabase PostgreSQL table initialization failed:", err.message);
+    console.error("Supabase PostgreSQL table initialization failed. Falling back to Local JSON database mode! Error:", err.message);
+    useLocalJson = true;
+    ensureJsonFile();
   }
 }
 
 // --- PRODUCTS CRUD ---
 export async function getProducts() {
+  if (useLocalJson) {
+    const db = readJsonDb();
+    return db.products.map(parseProduct);
+  }
   try {
     const res = await pool.query('SELECT * FROM products ORDER BY "createdAt" DESC');
     return res.rows.map(parseProduct);
@@ -173,6 +241,13 @@ export async function addProduct(product) {
     colorImages: product.colorImages || {},
     additionalImages: product.additionalImages || []
   };
+
+  if (useLocalJson) {
+    const db = readJsonDb();
+    db.products.unshift(newProductObj);
+    writeJsonDb(db);
+    return newProductObj;
+  }
 
   try {
     await pool.query(
@@ -204,6 +279,16 @@ export async function addProduct(product) {
 
 export async function updateProductStock(id, newStock) {
   const stockVal = Math.max(0, parseInt(newStock) || 0);
+  if (useLocalJson) {
+    const db = readJsonDb();
+    const idx = db.products.findIndex(p => p.id === id);
+    if (idx !== -1) {
+      db.products[idx].stock = stockVal;
+      writeJsonDb(db);
+      return parseProduct(db.products[idx]);
+    }
+    return null;
+  }
   try {
     const res = await pool.query(
       'UPDATE products SET "stock" = $1 WHERE "id" = $2 RETURNING *',
@@ -219,6 +304,29 @@ export async function updateProductStock(id, newStock) {
 }
 
 export async function updateProduct(id, fields) {
+  if (useLocalJson) {
+    const db = readJsonDb();
+    const idx = db.products.findIndex(p => p.id === id);
+    if (idx !== -1) {
+      const updated = { ...db.products[idx] };
+      for (const [key, val] of Object.entries(fields)) {
+        if (val !== undefined) {
+          if (key === 'price' || key === 'oldPrice') {
+            updated[key] = val !== null ? parseFloat(val) : null;
+          } else if (key === 'stock') {
+            updated[key] = parseInt(val) || 0;
+          } else {
+            updated[key] = val;
+          }
+        }
+      }
+      db.products[idx] = updated;
+      writeJsonDb(db);
+      return parseProduct(updated);
+    }
+    return null;
+  }
+
   const setClauses = [];
   const values = [];
   let paramIdx = 1;
@@ -254,6 +362,28 @@ export async function updateProduct(id, fields) {
 }
 
 export async function deleteProduct(id) {
+  if (useLocalJson) {
+    const db = readJsonDb();
+    const idx = db.products.findIndex(p => p.id === id);
+    if (idx !== -1) {
+      const deletedProd = db.products[idx];
+      db.products.splice(idx, 1);
+      writeJsonDb(db);
+      if (deletedProd.image && deletedProd.image.startsWith('/uploads/')) {
+        const imgPath = path.join(__dirname, 'public', deletedProd.image);
+        if (fs.existsSync(imgPath)) {
+          try {
+            fs.unlinkSync(imgPath);
+          } catch (e) {
+            console.error("Error deleting image file:", e);
+          }
+        }
+      }
+      return true;
+    }
+    return false;
+  }
+
   try {
     const res = await pool.query('DELETE FROM products WHERE "id" = $1 RETURNING *', [id]);
     if (res.rows.length > 0) {
@@ -278,6 +408,10 @@ export async function deleteProduct(id) {
 
 // --- USERS CRUD ---
 export async function getUsers() {
+  if (useLocalJson) {
+    const db = readJsonDb();
+    return db.users;
+  }
   try {
     const res = await pool.query('SELECT * FROM users ORDER BY "createdAt" DESC');
     return res.rows;
@@ -288,6 +422,33 @@ export async function getUsers() {
 }
 
 export async function addUser(user) {
+  if (useLocalJson) {
+    const db = readJsonDb();
+    let existingUser = db.users.find(u => u.phone === user.phone || u.email === user.email);
+    if (existingUser) {
+      existingUser.name = user.name || existingUser.name;
+      existingUser.address = user.address || existingUser.address;
+      existingUser.phone = user.phone || existingUser.phone;
+      existingUser.email = user.email || existingUser.email;
+      writeJsonDb(db);
+      return existingUser;
+    }
+
+    const newId = 'USR-' + Math.floor(100000 + Math.random() * 900000);
+    const newUserObj = {
+      id: newId,
+      createdAt: new Date().toISOString(),
+      name: user.name || '',
+      email: user.email || '',
+      phone: user.phone || '',
+      address: user.address || ''
+    };
+
+    db.users.unshift(newUserObj);
+    writeJsonDb(db);
+    return newUserObj;
+  }
+
   try {
     let existingUser = null;
     const findRes = await pool.query(
@@ -337,6 +498,10 @@ export async function addUser(user) {
 
 // --- ORDERS CRUD ---
 export async function getOrders() {
+  if (useLocalJson) {
+    const db = readJsonDb();
+    return db.orders.map(parseOrder);
+  }
   try {
     const res = await pool.query('SELECT * FROM orders ORDER BY "createdAt" DESC');
     return res.rows.map(parseOrder);
@@ -362,6 +527,35 @@ export async function addOrder(order) {
     items: order.items || [],
     totalAmount: parseFloat(order.totalAmount)
   };
+
+  if (useLocalJson) {
+    const db = readJsonDb();
+    
+    // Decrement stock in json
+    if (order.items && Array.isArray(order.items)) {
+      for (const item of order.items) {
+        const prod = db.products.find(p => p.id === item.id);
+        if (prod) {
+          const currentStock = prod.stock !== undefined ? prod.stock : 20;
+          prod.stock = Math.max(0, currentStock - (parseInt(item.quantity) || 0));
+        }
+      }
+    }
+    
+    db.orders.unshift(newOrderObj);
+    writeJsonDb(db);
+    
+    // Add/Update user
+    if (order.customerName && (order.phone || order.email)) {
+      await addUser({
+        name: order.customerName,
+        email: order.email,
+        phone: order.phone,
+        address: order.address
+      });
+    }
+    return newOrderObj;
+  }
 
   if (order.customerName && (order.phone || order.email)) {
     await addUser({
@@ -413,6 +607,16 @@ export async function addOrder(order) {
 }
 
 export async function updateOrderStatus(id, status) {
+  if (useLocalJson) {
+    const db = readJsonDb();
+    const idx = db.orders.findIndex(o => o.id === id);
+    if (idx !== -1) {
+      db.orders[idx].status = status;
+      writeJsonDb(db);
+      return parseOrder(db.orders[idx]);
+    }
+    return null;
+  }
   try {
     const res = await pool.query(
       'UPDATE orders SET "status" = $1 WHERE "id" = $2 RETURNING *',
@@ -428,6 +632,16 @@ export async function updateOrderStatus(id, status) {
 }
 
 export async function updateOrderPaymentStatus(id, paymentStatus) {
+  if (useLocalJson) {
+    const db = readJsonDb();
+    const idx = db.orders.findIndex(o => o.id === id);
+    if (idx !== -1) {
+      db.orders[idx].paymentStatus = paymentStatus;
+      writeJsonDb(db);
+      return parseOrder(db.orders[idx]);
+    }
+    return null;
+  }
   try {
     const res = await pool.query(
       'UPDATE orders SET "paymentStatus" = $1 WHERE "id" = $2 RETURNING *',
@@ -443,6 +657,16 @@ export async function updateOrderPaymentStatus(id, paymentStatus) {
 }
 
 export async function deleteOrder(id) {
+  if (useLocalJson) {
+    const db = readJsonDb();
+    const idx = db.orders.findIndex(o => o.id === id);
+    if (idx !== -1) {
+      db.orders.splice(idx, 1);
+      writeJsonDb(db);
+      return true;
+    }
+    return false;
+  }
   try {
     const res = await pool.query('DELETE FROM orders WHERE "id" = $1', [id]);
     return res.rowCount > 0;
@@ -454,6 +678,10 @@ export async function deleteOrder(id) {
 
 // --- INQUIRIES CRUD ---
 export async function getInquiries() {
+  if (useLocalJson) {
+    const db = readJsonDb();
+    return db.inquiries || [];
+  }
   try {
     const res = await pool.query('SELECT * FROM inquiries ORDER BY "createdAt" DESC');
     return res.rows;
@@ -475,6 +703,14 @@ export async function addInquiry(inquiry) {
     message: inquiry.message
   };
 
+  if (useLocalJson) {
+    const db = readJsonDb();
+    if (!db.inquiries) db.inquiries = [];
+    db.inquiries.unshift(newInquiryObj);
+    writeJsonDb(db);
+    return newInquiryObj;
+  }
+
   try {
     await pool.query(
       'INSERT INTO inquiries ("id", "createdAt", "name", "email", "phone", "subject", "message") VALUES ($1, $2, $3, $4, $5, $6, $7)',
@@ -488,6 +724,17 @@ export async function addInquiry(inquiry) {
 }
 
 export async function deleteInquiry(id) {
+  if (useLocalJson) {
+    const db = readJsonDb();
+    if (!db.inquiries) db.inquiries = [];
+    const idx = db.inquiries.findIndex(i => i.id === id);
+    if (idx !== -1) {
+      db.inquiries.splice(idx, 1);
+      writeJsonDb(db);
+      return true;
+    }
+    return false;
+  }
   try {
     const res = await pool.query('DELETE FROM inquiries WHERE "id" = $1', [id]);
     return res.rowCount > 0;
@@ -503,6 +750,18 @@ export function authorizeUser() { return false; }
 export async function syncPostgresAdmins() {}
 
 export async function resetDatabase() {
+  if (useLocalJson) {
+    const db = readJsonDb();
+    db.products = [];
+    db.orders = [];
+    db.users = [];
+    db.inquiries = [];
+    db.reviews = [];
+    db.cart_activity = [];
+    db.homepage_sections = [];
+    writeJsonDb(db);
+    return;
+  }
   try {
     await pool.query('TRUNCATE TABLE products, orders, users, inquiries, reviews, store_config, cart_activity CASCADE');
     console.log("[DATABASE] Supabase PostgreSQL database reset successfully.");
@@ -514,6 +773,11 @@ export async function resetDatabase() {
 
 // --- REVIEWS CRUD ---
 export async function getReviews(productId) {
+  if (useLocalJson) {
+    const db = readJsonDb();
+    if (!db.reviews) db.reviews = [];
+    return db.reviews.filter(r => r.productId === productId);
+  }
   try {
     const res = await pool.query('SELECT * FROM reviews WHERE "productId" = $1 ORDER BY "createdAt" DESC', [productId]);
     return res.rows;
@@ -534,6 +798,14 @@ export async function addReview(productId, review) {
     createdAt: new Date().toISOString()
   };
 
+  if (useLocalJson) {
+    const db = readJsonDb();
+    if (!db.reviews) db.reviews = [];
+    db.reviews.unshift(newReview);
+    writeJsonDb(db);
+    return newReview;
+  }
+
   try {
     await pool.query(
       'INSERT INTO reviews ("id", "productId", "author", "rating", "comment", "createdAt") VALUES ($1, $2, $3, $4, $5, $6)',
@@ -548,6 +820,10 @@ export async function addReview(productId, review) {
 
 // --- CART ACTIVITY CRUD ---
 export async function getCartActivity() {
+  if (useLocalJson) {
+    const db = readJsonDb();
+    return db.cart_activity || [];
+  }
   try {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS cart_activity (
@@ -582,6 +858,17 @@ export async function addCartActivity(act) {
     quantity: act.quantity !== undefined ? parseInt(act.quantity) : 1
   };
 
+  if (useLocalJson) {
+    const db = readJsonDb();
+    if (!db.cart_activity) db.cart_activity = [];
+    db.cart_activity.unshift(newActObj);
+    if (db.cart_activity.length > 100) {
+      db.cart_activity = db.cart_activity.slice(0, 100);
+    }
+    writeJsonDb(db);
+    return newActObj;
+  }
+
   try {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS cart_activity (
@@ -608,6 +895,23 @@ export async function addCartActivity(act) {
 
 // --- HOMEPAGE SECTIONS ---
 export async function getHomepageSections() {
+  if (useLocalJson) {
+    const db = readJsonDb();
+    if (db.homepage_sections && db.homepage_sections.length > 0) {
+      return db.homepage_sections;
+    }
+    return [
+      { id: 'recommendations', title: 'Mostly Searched & Popular', category: 'recommendations', enabled: true },
+      { id: 'collections', title: 'Shop By Collections', category: 'collections', enabled: true },
+      { id: 'new-arrivals', title: 'New Arrivals', category: 'newarrivals', enabled: true },
+      { id: 'kurtis', title: 'Kurtis', category: 'Kurtis', enabled: true },
+      { id: 'nightgown', title: 'Night Gown', category: 'Nightgown', enabled: true },
+      { id: 'kids', title: 'Kids Collections', category: 'Kids', enabled: true },
+      { id: 'shorttops', title: 'Short Tops', category: 'Short Tops', enabled: true },
+      { id: 'sarees', title: 'Sarees', category: 'Sarees', enabled: true },
+      { id: 'jewellery', title: 'Jewellery Collections', category: 'Jewellery', enabled: true }
+    ];
+  }
   try {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS store_config (
@@ -637,6 +941,12 @@ export async function getHomepageSections() {
 }
 
 export async function saveHomepageSections(sections) {
+  if (useLocalJson) {
+    const db = readJsonDb();
+    db.homepage_sections = sections;
+    writeJsonDb(db);
+    return;
+  }
   try {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS store_config (

@@ -726,6 +726,16 @@ function App() {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [userOrders, setUserOrders] = useState([]);
 
+  // Dynamic Merchant Config State
+  const [publicConfig, setPublicConfig] = useState({
+    merchantUpiId: 'sathya3772-2@okicici',
+    merchantUpiName: 'Sathya',
+    whatsappNumber: '919788633200',
+    heroImage1: '',
+    heroImage2: '',
+    heroImage3: ''
+  });
+
   // Track Order states
   const [isTrackModalOpen, setIsTrackModalOpen] = useState(false);
   const [trackOrderIdInput, setTrackOrderIdInput] = useState('');
@@ -746,6 +756,15 @@ function App() {
     }
     
     return product.image;
+  };
+
+  const formatPhone = (num) => {
+    if (!num) return '';
+    const cleaned = num.replace(/\D/g, '');
+    if (cleaned.length === 12 && cleaned.startsWith('91')) {
+      return `+91 ${cleaned.slice(2, 7)} ${cleaned.slice(7)}`;
+    }
+    return `+${cleaned}`;
   };
 
 
@@ -1172,8 +1191,29 @@ function App() {
     }
   }, []);
 
+  const fetchPublicConfig = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/config/public`);
+      if (res.ok) {
+        const data = await res.json();
+        setPublicConfig(prev => ({
+          ...prev,
+          merchantUpiId: data.merchantUpiId || prev.merchantUpiId,
+          merchantUpiName: data.merchantUpiName || prev.merchantUpiName,
+          whatsappNumber: data.whatsappNumber || prev.whatsappNumber,
+          heroImage1: data.heroImage1 || prev.heroImage1,
+          heroImage2: data.heroImage2 || prev.heroImage2,
+          heroImage3: data.heroImage3 || prev.heroImage3
+        }));
+      }
+    } catch (err) {
+      console.warn("Could not fetch public config, using defaults.");
+    }
+  };
+
   useEffect(() => {
     fetchStoreData();
+    fetchPublicConfig();
     const storeInterval = setInterval(fetchStoreData, 10000);
     return () => clearInterval(storeInterval);
   }, []);
@@ -1342,7 +1382,7 @@ function App() {
         }).join('\n');
         
         const msg = `Hi SAVI'S collection! I just placed an order on your website.\n\n*Order ID:* ${order.id}\n*Total Amount:* Rs ${placedTotal.toLocaleString('en-IN')}\n*Payment Method:* ${order.paymentMethod || paymentMethod}\n\n*Customer Details:*\nName: ${customerName}\nPhone: ${phone}\nAddress: ${address}\n\n*Items Ordered:*\n${itemsWithImages}`;
-        const waLink = `https://api.whatsapp.com/send?phone=919788633200&text=${encodeURIComponent(msg)}`;
+        const waLink = `https://api.whatsapp.com/send?phone=${publicConfig.whatsappNumber}&text=${encodeURIComponent(msg)}`;
         window.open(waLink, '_blank');
       } else {
         alert("Failed to submit order. Please check connection.");
@@ -1373,7 +1413,7 @@ function App() {
       }).join('\n');
 
       const msg = `Hi SAVI'S collection! I just placed an order on your website (Offline).\n\n*Order ID:* ${mockId}\n*Total Amount:* Rs ${finalTotal.toLocaleString('en-IN')}\n*Payment Method:* ${paymentMethod}\n\n*Customer Details:*\nName: ${customerName}\nPhone: ${phone}\nAddress: ${address}\n\n*Items Ordered:*\n${offlineItemsWithImages}`;
-      const waLink = `https://api.whatsapp.com/send?phone=919788633200&text=${encodeURIComponent(msg)}`;
+      const waLink = `https://api.whatsapp.com/send?phone=${publicConfig.whatsappNumber}&text=${encodeURIComponent(msg)}`;
       window.open(waLink, '_blank');
     }
   };
@@ -2111,7 +2151,7 @@ function App() {
     const placedOrder = userOrders.find(o => o.id === checkoutOrderId) || orders.find(o => o.id === checkoutOrderId);
     const placedTotal = placedOrder ? placedOrder.totalAmount : 0;
     const msg = `Hi SAVI'S collection! I just placed order ${checkoutOrderId} for ₹${placedTotal.toLocaleString('en-IN')} on your website. Please confirm my order!`;
-    const cleanPhone = "919788633200";
+    const cleanPhone = publicConfig.whatsappNumber;
     const waLink = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(msg)}`;
     window.open(waLink, '_blank');
   };
@@ -3227,9 +3267,9 @@ function App() {
                           <div>
                             <h4 style={{ fontSize: '1rem', fontWeight: '600', margin: '0 0 4px 0', color: 'var(--text-primary)' }}>Phone & WhatsApp</h4>
                             <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-                              <a href="tel:+919788633200" style={{ color: 'inherit', textDecoration: 'none' }}>+91 97886 33200</a>
+                              <a href={`tel:+${publicConfig.whatsappNumber}`} style={{ color: 'inherit', textDecoration: 'none' }}>{formatPhone(publicConfig.whatsappNumber)}</a>
                             </p>
-                            <a href="https://wa.me/919788633200" target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', color: '#25D366', fontWeight: '600', textDecoration: 'none', marginTop: '4px' }}>
+                            <a href={`https://wa.me/${publicConfig.whatsappNumber}`} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', color: '#25D366', fontWeight: '600', textDecoration: 'none', marginTop: '4px' }}>
                               💬 Chat with us on WhatsApp
                             </a>
                           </div>
@@ -4632,7 +4672,7 @@ function App() {
       </footer>
 
       {/* WHATSAPP FLOATING BUTTON */}
-      <a href="https://wa.me/919788633200" target="_blank" rel="noreferrer" className="wa-btn" title="Chat on WhatsApp">💬</a>
+      <a href={`https://wa.me/${publicConfig.whatsappNumber}`} target="_blank" rel="noreferrer" className="wa-btn" title="Chat on WhatsApp">💬</a>
 
       {/* TOAST NOTIFICATION POPUP */}
       <div className={`toast ${toastShow ? 'show' : ''}`} id="toast">
@@ -5614,8 +5654,8 @@ function App() {
                   const subtotal = getCheckoutTotal();
                   const deliveryCost = subtotal >= 599 ? 0 : 50;
                   const finalTotal = subtotal + deliveryCost;
-                  const upiToUse = 'sathya3772-2@okicici';
-                  const upiName = encodeURIComponent('saivi collection');
+                  const upiToUse = publicConfig.merchantUpiId;
+                  const upiName = encodeURIComponent(publicConfig.merchantUpiName);
                   const upiPayload = `upi://pay?pa=${upiToUse}&pn=${upiName}&am=${finalTotal}&cu=INR`;
                   const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(upiPayload)}`;
                   return (
