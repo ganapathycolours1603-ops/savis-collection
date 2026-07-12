@@ -363,7 +363,7 @@ if (typeof window !== 'undefined' && USE_MOCK_API) {
 // Fallback products data matching the SAVI'S collection storefront HTML structure
 const fallbackProducts = productsData;
 
-const API_BASE_URL = window.location.origin;
+const API_BASE_URL = import.meta.env.VITE_API_URL || window.location.origin;
 
 const COLLECTIONS = [
   { name: '🔥 BIG COMBO SALE', img: 'https://images.unsplash.com/photo-1483985988355-763728e1935b?w=500&q=80', href: '#new-arrivals' },
