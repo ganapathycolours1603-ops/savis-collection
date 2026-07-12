@@ -1,3 +1,6 @@
+import 'dotenv/config';
+import dns from 'dns';
+dns.setDefaultResultOrder('ipv4first');
 import pg from 'pg';
 import fs from 'fs';
 import path from 'path';
